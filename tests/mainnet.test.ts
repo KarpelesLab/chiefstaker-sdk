@@ -336,6 +336,42 @@ describe("on-chain account size validation", () => {
   });
 });
 
+describe("reward calculation", () => {
+  it("getClaimableRewards returns a non-negative value", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const rewards = await client.getClaimableRewards(poolAddress, STAKER);
+    expect(rewards).toBeGreaterThanOrEqual(0n);
+  });
+
+  it("getClaimableRewards returns 0 for nonexistent staker", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const fakeUser = new PublicKey("11111111111111111111111111111112");
+    const rewards = await client.getClaimableRewards(poolAddress, fakeUser);
+    expect(rewards).toBe(0n);
+  });
+
+  it("getStakeWeight returns a value between 0 and 1", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const weight = await client.getStakeWeight(poolAddress, STAKER);
+    expect(weight).toBeGreaterThanOrEqual(0);
+    expect(weight).toBeLessThanOrEqual(1);
+  });
+
+  it("getStakeWeight returns 0 for nonexistent staker", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const fakeUser = new PublicKey("11111111111111111111111111111112");
+    const weight = await client.getStakeWeight(poolAddress, fakeUser);
+    expect(weight).toBe(0);
+  });
+
+  it("accepts currentTime override", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const farFuture = BigInt(Math.floor(Date.now() / 1000)) + 86400n * 365n;
+    const rewards = await client.getClaimableRewards(poolAddress, STAKER, farFuture);
+    expect(rewards).toBeGreaterThanOrEqual(0n);
+  });
+});
+
 describe("returns null for nonexistent accounts", () => {
   it("returns null for a random mint with no pool", async () => {
     const fakeMint = new PublicKey("11111111111111111111111111111112");

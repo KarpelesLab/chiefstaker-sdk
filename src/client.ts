@@ -9,7 +9,8 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "./constants.js";
+import { PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, WAD } from "./constants.js";
+import { calculatePendingRewards, calculateUserWeightedStake, syncExpStartFactor } from "./math.js";
 import { findPoolAddress, findTokenVaultAddress, findUserStakeAddress, findPoolMetadataAddress } from "./pda.js";
 import { StakingPool, UserStake, PoolMetadata } from "./types.js";
 import {
@@ -299,6 +300,96 @@ export class ChiefStakerClient {
     newRewardDebt: bigint;
   }): TransactionInstruction {
     return createFixStakeAccountInstruction({ ...params, programId: this.programId });
+  }
+
+  // ------------------------------------------------------------------
+  // Reward calculation
+  // ------------------------------------------------------------------
+
+  /**
+   * Compute the pending claimable SOL rewards (in lamports) for a staker.
+   *
+   * Pass `currentTime` to override the current timestamp (unix seconds),
+   * otherwise the on-chain clock is fetched automatically.
+   */
+  async getClaimableRewards(
+    pool: PublicKey,
+    owner: PublicKey,
+    currentTime?: bigint | number
+  ): Promise<bigint> {
+    const [poolData, stakeData] = await Promise.all([
+      this.getPoolByAddress(pool),
+      this.getUserStake(pool, owner),
+    ]);
+    if (!poolData || !stakeData) return 0n;
+
+    let now: bigint;
+    if (currentTime !== undefined) {
+      now = BigInt(currentTime);
+    } else {
+      const slot = await this.connection.getSlot();
+      const blockTime = await this.connection.getBlockTime(slot);
+      now = BigInt(blockTime ?? Math.floor(Date.now() / 1000));
+    }
+
+    return calculatePendingRewards({
+      amount: stakeData.amount,
+      expStartFactor: stakeData.expStartFactor,
+      rewardDebt: stakeData.rewardDebt,
+      claimedRewardsWad: stakeData.claimedRewardsWad,
+      baseTimeSnapshot: stakeData.baseTimeSnapshot,
+      poolAccRewardPerWeightedShare: poolData.accRewardPerWeightedShare,
+      poolBaseTime: poolData.baseTime,
+      poolInitialBaseTime: poolData.initialBaseTime,
+      poolTauSeconds: poolData.tauSeconds,
+      currentTime: now,
+    });
+  }
+
+  /**
+   * Compute the current staking weight (0–100%) for a user.
+   *
+   * Returns a number between 0 and 1 (e.g. 0.632 = 63.2%).
+   */
+  async getStakeWeight(
+    pool: PublicKey,
+    owner: PublicKey,
+    currentTime?: bigint | number
+  ): Promise<number> {
+    const [poolData, stakeData] = await Promise.all([
+      this.getPoolByAddress(pool),
+      this.getUserStake(pool, owner),
+    ]);
+    if (!poolData || !stakeData || stakeData.amount === 0n) return 0;
+
+    let now: bigint;
+    if (currentTime !== undefined) {
+      now = BigInt(currentTime);
+    } else {
+      const slot = await this.connection.getSlot();
+      const blockTime = await this.connection.getBlockTime(slot);
+      now = BigInt(blockTime ?? Math.floor(Date.now() / 1000));
+    }
+
+    const syncedEsf = syncExpStartFactor(
+      stakeData.expStartFactor,
+      stakeData.baseTimeSnapshot,
+      poolData.baseTime,
+      poolData.initialBaseTime,
+      poolData.tauSeconds
+    );
+
+    const weighted = calculateUserWeightedStake(
+      stakeData.amount,
+      syncedEsf,
+      now,
+      poolData.baseTime,
+      poolData.tauSeconds
+    );
+
+    const maxWeight = stakeData.amount * WAD;
+    if (maxWeight === 0n) return 0;
+    return Number(weighted * 10000n / maxWeight) / 10000;
   }
 
   // ------------------------------------------------------------------

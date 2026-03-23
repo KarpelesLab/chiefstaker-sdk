@@ -105,3 +105,15 @@ export {
   parseChiefStakerError,
   extractProgramError,
 } from "./errors.js";
+
+// Math
+export {
+  wadMul,
+  wadDiv,
+  expWad,
+  expNegWad,
+  expNegTimeRatio,
+  calculateUserWeightedStake,
+  syncExpStartFactor,
+  calculatePendingRewards,
+} from "./math.js";

@@ -124,6 +124,23 @@ const cancelIx = client.cancelUnstakeRequest({
 });
 ```
 
+### Checking pending rewards and weight
+
+Query claimable SOL and current staking weight without sending a transaction:
+
+```ts
+// Get pending claimable rewards in lamports
+const rewards = await client.getClaimableRewards(poolAddress, wallet.publicKey);
+console.log(`Claimable: ${Number(rewards) / 1e9} SOL`);
+
+// Get current staking weight (0 to 1)
+const weight = await client.getStakeWeight(poolAddress, wallet.publicKey);
+console.log(`Weight: ${(weight * 100).toFixed(1)}%`);
+```
+
+Both methods accept an optional `currentTime` parameter to simulate a future
+timestamp.
+
 ### Claiming rewards
 
 SOL rewards accrue based on your time-weighted stake. Claim them at any time:
