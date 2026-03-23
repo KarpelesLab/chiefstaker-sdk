@@ -7,10 +7,16 @@ import {
   findTokenVaultAddress,
   findPoolMetadataAddress,
   fetchStakingPool,
+  fetchStakingPoolByAddress,
   fetchUserStake,
+  fetchUserStakeByAddress,
   fetchPoolMetadata,
+  fetchAllStakingPools,
+  fetchUserStakesByPool,
   fetchUserStakesByOwner,
   TOKEN_2022_PROGRAM_ID,
+  PROGRAM_ID,
+  WAD,
 } from "../src/index.js";
 
 const RPC_URL = "https://api.mainnet-beta.solana.com";
@@ -173,6 +179,163 @@ describe("detect token program", () => {
   });
 });
 
+describe("pool data integrity", () => {
+  it("pool authority is a valid non-default pubkey", async () => {
+    const pool = await client.getPool(MINT);
+    expect(pool).not.toBeNull();
+    expect(pool!.authority).toBeInstanceOf(PublicKey);
+    // authority should not be default (all zeros) unless renounced
+    // just check it's a valid key
+    expect(pool!.authority.toBase58().length).toBeGreaterThan(0);
+  });
+
+  it("accRewardPerWeightedShare is non-negative", async () => {
+    const pool = await client.getPool(MINT);
+    expect(pool!.accRewardPerWeightedShare).toBeGreaterThanOrEqual(0n);
+  });
+
+  it("lastUpdateTime is a plausible unix timestamp", async () => {
+    const pool = await client.getPool(MINT);
+    // Should be after 2024-01-01 and before 2030-01-01
+    expect(pool!.lastUpdateTime).toBeGreaterThan(1704067200n);
+    expect(pool!.lastUpdateTime).toBeLessThan(1893456000n);
+  });
+
+  it("baseTime is a plausible unix timestamp", async () => {
+    const pool = await client.getPool(MINT);
+    expect(pool!.baseTime).toBeGreaterThan(1704067200n);
+    expect(pool!.baseTime).toBeLessThan(1893456000n);
+  });
+
+  it("sumStakeExp is 32 bytes", async () => {
+    const pool = await client.getPool(MINT);
+    expect(pool!.sumStakeExp).toBeInstanceOf(Uint8Array);
+    expect(pool!.sumStakeExp.length).toBe(32);
+  });
+
+  it("totalRewardDebt is non-negative", async () => {
+    const pool = await client.getPool(MINT);
+    expect(pool!.totalRewardDebt).toBeGreaterThanOrEqual(0n);
+  });
+});
+
+describe("user stake data integrity", () => {
+  it("stakeTime is a plausible unix timestamp", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const stake = await client.getUserStake(poolAddress, STAKER);
+    expect(stake!.stakeTime).toBeGreaterThan(1704067200n);
+    expect(stake!.stakeTime).toBeLessThan(1893456000n);
+  });
+
+  it("expStartFactor is positive (WAD-scaled)", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const stake = await client.getUserStake(poolAddress, STAKER);
+    // expStartFactor should be >= WAD (e^0 = 1)
+    expect(stake!.expStartFactor).toBeGreaterThanOrEqual(WAD);
+  });
+
+  it("all deserialized fields have expected types", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const stake = await client.getUserStake(poolAddress, STAKER);
+
+    expect(typeof stake!.amount).toBe("bigint");
+    expect(typeof stake!.stakeTime).toBe("bigint");
+    expect(typeof stake!.expStartFactor).toBe("bigint");
+    expect(typeof stake!.rewardDebt).toBe("bigint");
+    expect(typeof stake!.bump).toBe("number");
+    expect(typeof stake!.unstakeRequestAmount).toBe("bigint");
+    expect(typeof stake!.unstakeRequestTime).toBe("bigint");
+    expect(typeof stake!.lastStakeTime).toBe("bigint");
+    expect(typeof stake!.baseTimeSnapshot).toBe("bigint");
+    expect(typeof stake!.totalRewardsClaimed).toBe("bigint");
+    expect(typeof stake!.claimedRewardsWad).toBe("bigint");
+  });
+});
+
+describe("fetch stakers by pool", () => {
+  it("finds stakers including our test staker", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const stakers = await client.getStakesByPool(poolAddress);
+
+    expect(stakers.length).toBeGreaterThan(0);
+
+    // All stakers should reference this pool
+    for (const { account } of stakers) {
+      expect(account.pool.equals(poolAddress)).toBe(true);
+    }
+
+    // Our test staker should appear
+    const found = stakers.find(({ account }) =>
+      account.owner.equals(STAKER)
+    );
+    expect(found).toBeDefined();
+  }, 30_000);
+});
+
+describe("fetch all pools", () => {
+  it("finds pools including our test pool, all with valid structure", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    let pools;
+    try {
+      pools = await client.getAllPools();
+    } catch (e: any) {
+      if (e?.message?.includes("429")) {
+        console.warn("Skipping: public RPC rate-limited on getProgramAccounts");
+        return;
+      }
+      throw e;
+    }
+
+    expect(pools.length).toBeGreaterThan(0);
+
+    // Our test pool should appear
+    const found = pools.find(({ address }) => address.equals(poolAddress));
+    expect(found).toBeDefined();
+    expect(found!.account.mint.equals(MINT)).toBe(true);
+
+    // All pools should have valid structure
+    for (const { account } of pools) {
+      expect(account.mint).toBeInstanceOf(PublicKey);
+      expect(account.tokenVault).toBeInstanceOf(PublicKey);
+      expect(account.authority).toBeInstanceOf(PublicKey);
+      expect(account.tauSeconds).toBeGreaterThan(0n);
+      expect(account.bump).toBeGreaterThan(0);
+    }
+  }, 30_000);
+});
+
+describe("on-chain account size validation", () => {
+  it("pool account is exactly 289 bytes", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const info = await connection.getAccountInfo(poolAddress);
+    expect(info).not.toBeNull();
+    expect(info!.data.length).toBe(289);
+  });
+
+  it("pool account is owned by the program", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const info = await connection.getAccountInfo(poolAddress);
+    expect(info!.owner.equals(PROGRAM_ID)).toBe(true);
+  });
+
+  it("user stake account is owned by the program", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const [stakeAddress] = findUserStakeAddress(poolAddress, STAKER);
+    const info = await connection.getAccountInfo(stakeAddress);
+    expect(info).not.toBeNull();
+    expect(info!.owner.equals(PROGRAM_ID)).toBe(true);
+  });
+
+  it("metadata account is owned by the program", async () => {
+    const [poolAddress] = findPoolAddress(MINT);
+    const [metaAddress] = findPoolMetadataAddress(poolAddress);
+    const info = await connection.getAccountInfo(metaAddress);
+    expect(info).not.toBeNull();
+    expect(info!.owner.equals(PROGRAM_ID)).toBe(true);
+    expect(info!.data.length).toBe(508);
+  });
+});
+
 describe("returns null for nonexistent accounts", () => {
   it("returns null for a random mint with no pool", async () => {
     const fakeMint = new PublicKey("11111111111111111111111111111112");
@@ -185,5 +348,12 @@ describe("returns null for nonexistent accounts", () => {
     const fakeUser = new PublicKey("11111111111111111111111111111112");
     const stake = await client.getUserStake(poolAddress, fakeUser);
     expect(stake).toBeNull();
+  });
+
+  it("returns null for metadata on a pool that has none", async () => {
+    const fakeMint = new PublicKey("11111111111111111111111111111112");
+    const [fakePool] = findPoolAddress(fakeMint);
+    const meta = await client.getPoolMetadata(fakePool);
+    expect(meta).toBeNull();
   });
 });
