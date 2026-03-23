@@ -1,0 +1,43 @@
+{
+  "name": "@karpeleslab/chiefstaker-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the ChiefStaker time-weighted staking program on Solana",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "solana",
+    "staking",
+    "chiefstaker",
+    "spl-token",
+    "token-2022"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@solana/web3.js": "^1.90.0"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.0"
+  },
+  "devDependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.0"
+  }
+}
