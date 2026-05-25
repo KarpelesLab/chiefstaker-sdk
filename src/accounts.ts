@@ -105,7 +105,7 @@ export function deserializeStakingPool(data: Buffer): StakingPool {
   };
 }
 
-/** Deserialize a UserStake from raw account data (177 bytes, legacy 153/161 supported) */
+/** Deserialize a UserStake from raw account data (178 bytes, legacy 153/161/177 supported) */
 export function deserializeUserStake(data: Buffer): UserStake {
   const disc = data.subarray(0, 8);
   if (!disc.equals(USER_STAKE_DISCRIMINATOR)) {
@@ -144,6 +144,8 @@ export function deserializeUserStake(data: Buffer): UserStake {
   const totalRewardsClaimed = len > offset + 7 ? readU64(data, offset) : 0n;
   offset += 8;
   const claimedRewardsWad = len > offset + 15 ? readU128(data, offset) : 0n;
+  offset += 16;
+  const unstakeRequestSettled = len > offset ? readU8(data, offset) : 0;
 
   return {
     owner,
@@ -159,6 +161,7 @@ export function deserializeUserStake(data: Buffer): UserStake {
     baseTimeSnapshot,
     totalRewardsClaimed,
     claimedRewardsWad,
+    unstakeRequestSettled,
   };
 }
 

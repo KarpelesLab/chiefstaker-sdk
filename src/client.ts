@@ -159,7 +159,6 @@ export class ChiefStakerClient {
     userTokenAccount: PublicKey;
     amount: bigint | number;
     tokenProgram: PublicKey;
-    includeMetadata?: boolean;
   }): TransactionInstruction {
     return createStakeInstruction({ ...params, programId: this.programId });
   }
@@ -285,7 +284,6 @@ export class ChiefStakerClient {
     stakerTokenAccount: PublicKey;
     amount: bigint | number;
     tokenProgram: PublicKey;
-    includeMetadata?: boolean;
   }): TransactionInstruction {
     return createStakeOnBehalfInstruction({ ...params, programId: this.programId });
   }

@@ -35,6 +35,7 @@ export enum ChiefStakerError {
   UnsupportedMintExtension = 6032,
   MissingSystemProgram = 6033,
   RewardDebtExceedsBound = 6034,
+  ResidualRewardsPending = 6035,
 }
 
 const ERROR_MESSAGES: Record<number, string> = {
@@ -73,6 +74,7 @@ const ERROR_MESSAGES: Record<number, string> = {
   6032: "Token mint has a dangerous extension (PermanentDelegate, TransferHook, etc.)",
   6033: "System program required for legacy account reallocation",
   6034: "New total_reward_debt exceeds maximum accumulated rewards",
+  6035: "Claim residual rewards before cancelling a full unstake request",
 };
 
 /** Parse a ChiefStaker program error from a transaction error */

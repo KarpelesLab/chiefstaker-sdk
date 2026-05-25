@@ -68,6 +68,12 @@ export interface UserStake {
   totalRewardsClaimed: bigint;
   /** Cumulative WAD-scaled rewards already paid */
   claimedRewardsWad: bigint;
+  /**
+   * 1 when the pending unstake request was created under the settle-at-request
+   * flow (frozen coins already removed from the pool). 0 = no request, or a
+   * legacy in-flight request. Defaults to 0 for legacy accounts.
+   */
+  unstakeRequestSettled: number;
 }
 
 /** Decoded PoolMetadata account */

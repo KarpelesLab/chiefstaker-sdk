@@ -7,7 +7,7 @@ import {
 
 describe("parseChiefStakerError", () => {
   it("parses all known error codes", () => {
-    for (let code = 6000; code <= 6034; code++) {
+    for (let code = 6000; code <= 6035; code++) {
       const result = parseChiefStakerError(code);
       expect(result).not.toBeNull();
       expect(result!.code).toBe(code);
@@ -18,7 +18,7 @@ describe("parseChiefStakerError", () => {
 
   it("returns null for unknown error codes", () => {
     expect(parseChiefStakerError(5999)).toBeNull();
-    expect(parseChiefStakerError(6035)).toBeNull();
+    expect(parseChiefStakerError(6036)).toBeNull();
     expect(parseChiefStakerError(0)).toBeNull();
     expect(parseChiefStakerError(9999)).toBeNull();
   });
@@ -29,6 +29,7 @@ describe("parseChiefStakerError", () => {
     expect(parseChiefStakerError(6022)!.name).toBe("StakeLocked");
     expect(parseChiefStakerError(6024)!.name).toBe("CooldownRequired");
     expect(parseChiefStakerError(6034)!.name).toBe("RewardDebtExceedsBound");
+    expect(parseChiefStakerError(6035)!.name).toBe("ResidualRewardsPending");
   });
 
   it("maps specific codes to correct messages", () => {
@@ -115,11 +116,11 @@ describe("extractProgramError", () => {
     });
     expect(first!.code).toBe(ChiefStakerError.InvalidInstruction);
 
-    // 6034 = 0x1792
+    // 6035 = 0x1793
     const last = extractProgramError({
-      message: "custom program error: 0x1792",
+      message: "custom program error: 0x1793",
     });
-    expect(last!.code).toBe(ChiefStakerError.RewardDebtExceedsBound);
+    expect(last!.code).toBe(ChiefStakerError.ResidualRewardsPending);
   });
 
   it("handles uppercase hex", () => {
@@ -141,6 +142,7 @@ describe("ChiefStakerError enum", () => {
     expect(ChiefStakerError.ZeroAmount).toBe(6014);
     expect(ChiefStakerError.CooldownRequired).toBe(6024);
     expect(ChiefStakerError.RewardDebtExceedsBound).toBe(6034);
+    expect(ChiefStakerError.ResidualRewardsPending).toBe(6035);
   });
 
   it("supports reverse lookup", () => {

@@ -115,18 +115,23 @@ export interface StakeParams {
   amount: bigint | number;
   /** Token program (SPL Token or Token 2022) */
   tokenProgram: PublicKey;
-  /** Include PoolMetadata PDA to increment member_count */
-  includeMetadata?: boolean;
   programId?: PublicKey;
 }
 
-/** Build a Stake instruction */
+/**
+ * Build a Stake instruction.
+ *
+ * The PoolMetadata PDA is a required account: member_count is incremented on a
+ * new stake. It is derived and appended automatically; an uninitialized account
+ * is tolerated on-chain for pools that never created metadata.
+ */
 export function createStakeInstruction(
   params: StakeParams
 ): TransactionInstruction {
   const programId = params.programId ?? PROGRAM_ID;
   const [userStake] = findUserStakeAddress(params.pool, params.owner, programId);
   const [tokenVault] = findTokenVaultAddress(params.pool, programId);
+  const [metadata] = findPoolMetadataAddress(params.pool, programId);
 
   const data = Buffer.concat([encodeU8(1), encodeU64(params.amount)]);
 
@@ -139,12 +144,8 @@ export function createStakeInstruction(
     { pubkey: params.owner, isSigner: true, isWritable: true },
     { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: params.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: metadata, isSigner: false, isWritable: true },
   ];
-
-  if (params.includeMetadata) {
-    const [metadata] = findPoolMetadataAddress(params.pool, programId);
-    keys.push({ pubkey: metadata, isSigner: false, isWritable: true });
-  }
 
   return new TransactionInstruction({ keys, programId, data });
 }
@@ -165,13 +166,20 @@ export interface UnstakeParams {
   programId?: PublicKey;
 }
 
-/** Build an Unstake instruction (direct unstake, only when pool has no cooldown) */
+/**
+ * Build an Unstake instruction (direct unstake, only when pool has no cooldown).
+ *
+ * The system program (for legacy account reallocation) and the PoolMetadata PDA
+ * (member_count is decremented on a full-unstake close) are required accounts;
+ * both are appended automatically.
+ */
 export function createUnstakeInstruction(
   params: UnstakeParams
 ): TransactionInstruction {
   const programId = params.programId ?? PROGRAM_ID;
   const [userStake] = findUserStakeAddress(params.pool, params.owner, programId);
   const [tokenVault] = findTokenVaultAddress(params.pool, programId);
+  const [metadata] = findPoolMetadataAddress(params.pool, programId);
 
   const data = Buffer.concat([encodeU8(2), encodeU64(params.amount)]);
 
@@ -183,6 +191,8 @@ export function createUnstakeInstruction(
     { pubkey: params.mint, isSigner: false, isWritable: false },
     { pubkey: params.owner, isSigner: true, isWritable: true },
     { pubkey: params.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: metadata, isSigner: false, isWritable: true },
   ];
 
   return new TransactionInstruction({ keys, programId, data });
@@ -348,7 +358,13 @@ export interface RequestUnstakeParams {
   programId?: PublicKey;
 }
 
-/** Build a RequestUnstake instruction (starts cooldown period) */
+/**
+ * Build a RequestUnstake instruction (starts cooldown period).
+ *
+ * The owner is writable because already-earned rewards on the requested coins
+ * are settled and paid out immediately. The system program is appended as an
+ * optional trailing account so legacy stake accounts can be reallocated.
+ */
 export function createRequestUnstakeInstruction(
   params: RequestUnstakeParams
 ): TransactionInstruction {
@@ -360,7 +376,8 @@ export function createRequestUnstakeInstruction(
   const keys: AccountMeta[] = [
     { pubkey: params.pool, isSigner: false, isWritable: true },
     { pubkey: userStake, isSigner: false, isWritable: true },
-    { pubkey: params.owner, isSigner: true, isWritable: false },
+    { pubkey: params.owner, isSigner: true, isWritable: true },
+    { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
   ];
 
   return new TransactionInstruction({ keys, programId, data });
@@ -380,13 +397,20 @@ export interface CompleteUnstakeParams {
   programId?: PublicKey;
 }
 
-/** Build a CompleteUnstake instruction (after cooldown) */
+/**
+ * Build a CompleteUnstake instruction (after cooldown).
+ *
+ * The system program (required) and the PoolMetadata PDA (member_count is
+ * decremented when a full unstake closes the account) are appended
+ * automatically.
+ */
 export function createCompleteUnstakeInstruction(
   params: CompleteUnstakeParams
 ): TransactionInstruction {
   const programId = params.programId ?? PROGRAM_ID;
   const [userStake] = findUserStakeAddress(params.pool, params.owner, programId);
   const [tokenVault] = findTokenVaultAddress(params.pool, programId);
+  const [metadata] = findPoolMetadataAddress(params.pool, programId);
 
   const data = encodeU8(10);
 
@@ -398,6 +422,8 @@ export function createCompleteUnstakeInstruction(
     { pubkey: params.mint, isSigner: false, isWritable: false },
     { pubkey: params.owner, isSigner: true, isWritable: true },
     { pubkey: params.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: metadata, isSigner: false, isWritable: true },
   ];
 
   return new TransactionInstruction({ keys, programId, data });
@@ -411,7 +437,13 @@ export interface CancelUnstakeRequestParams {
   programId?: PublicKey;
 }
 
-/** Build a CancelUnstakeRequest instruction */
+/**
+ * Build a CancelUnstakeRequest instruction.
+ *
+ * The pool is writable because the frozen coins are restored to the active
+ * staking position (pool weight and total_staked are updated). The system
+ * program is appended as an optional trailing account for legacy reallocation.
+ */
 export function createCancelUnstakeRequestInstruction(
   params: CancelUnstakeRequestParams
 ): TransactionInstruction {
@@ -421,9 +453,10 @@ export function createCancelUnstakeRequestInstruction(
   const data = encodeU8(11);
 
   const keys: AccountMeta[] = [
-    { pubkey: params.pool, isSigner: false, isWritable: false },
+    { pubkey: params.pool, isSigner: false, isWritable: true },
     { pubkey: userStake, isSigner: false, isWritable: true },
     { pubkey: params.owner, isSigner: true, isWritable: false },
+    { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
   ];
 
   return new TransactionInstruction({ keys, programId, data });
@@ -437,12 +470,18 @@ export interface CloseStakeAccountParams {
   programId?: PublicKey;
 }
 
-/** Build a CloseStakeAccount instruction (reclaim rent from zero-balance stake) */
+/**
+ * Build a CloseStakeAccount instruction (reclaim rent from zero-balance stake).
+ *
+ * The PoolMetadata PDA is a required account: member_count is decremented on
+ * close. It is derived and appended automatically.
+ */
 export function createCloseStakeAccountInstruction(
   params: CloseStakeAccountParams
 ): TransactionInstruction {
   const programId = params.programId ?? PROGRAM_ID;
   const [userStake] = findUserStakeAddress(params.pool, params.owner, programId);
+  const [metadata] = findPoolMetadataAddress(params.pool, programId);
 
   const data = encodeU8(12);
 
@@ -450,6 +489,7 @@ export function createCloseStakeAccountInstruction(
     { pubkey: params.pool, isSigner: false, isWritable: false },
     { pubkey: userStake, isSigner: false, isWritable: true },
     { pubkey: params.owner, isSigner: true, isWritable: true },
+    { pubkey: metadata, isSigner: false, isWritable: true },
   ];
 
   return new TransactionInstruction({ keys, programId, data });
@@ -554,12 +594,16 @@ export interface StakeOnBehalfParams {
   amount: bigint | number;
   /** Token program (SPL Token or Token 2022) */
   tokenProgram: PublicKey;
-  /** Include PoolMetadata PDA to increment member_count */
-  includeMetadata?: boolean;
   programId?: PublicKey;
 }
 
-/** Build a StakeOnBehalf instruction */
+/**
+ * Build a StakeOnBehalf instruction.
+ *
+ * The PoolMetadata PDA is a required account: member_count is incremented on a
+ * new stake. It is derived and appended automatically; an uninitialized account
+ * is tolerated on-chain for pools that never created metadata.
+ */
 export function createStakeOnBehalfInstruction(
   params: StakeOnBehalfParams
 ): TransactionInstruction {
@@ -570,6 +614,7 @@ export function createStakeOnBehalfInstruction(
     programId
   );
   const [tokenVault] = findTokenVaultAddress(params.pool, programId);
+  const [metadata] = findPoolMetadataAddress(params.pool, programId);
 
   const data = Buffer.concat([encodeU8(16), encodeU64(params.amount)]);
 
@@ -583,12 +628,8 @@ export function createStakeOnBehalfInstruction(
     { pubkey: params.beneficiary, isSigner: false, isWritable: true },
     { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: params.tokenProgram, isSigner: false, isWritable: false },
+    { pubkey: metadata, isSigner: false, isWritable: true },
   ];
-
-  if (params.includeMetadata) {
-    const [metadata] = findPoolMetadataAddress(params.pool, programId);
-    keys.push({ pubkey: metadata, isSigner: false, isWritable: true });
-  }
 
   return new TransactionInstruction({ keys, programId, data });
 }

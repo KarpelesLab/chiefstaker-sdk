@@ -74,11 +74,15 @@ const ix = client.stake({
   userTokenAccount: myTokenAccount,
   amount: 1_000_000n,
   tokenProgram,
-  includeMetadata: true, // increment the pool's member count
 });
 
 await client.sendTransaction([ix], [keypair]);
 ```
+
+The pool's metadata PDA is a required account on the stake, unstake, and close
+paths (it keeps `member_count` exact). The SDK derives and appends it
+automatically, so you don't pass it explicitly — an uninitialized metadata
+account is tolerated on-chain for pools that never called `setPoolMetadata`.
 
 ### Unstaking tokens
 
@@ -224,7 +228,6 @@ const ix = client.stakeOnBehalf({
   stakerTokenAccount: myTokenAccount,
   amount: 1_000_000n,
   tokenProgram,
-  includeMetadata: true,
 });
 ```
 
@@ -435,6 +438,7 @@ try {
 | `baseTimeSnapshot`    | `bigint`    | Pool base_time when last calibrated               |
 | `totalRewardsClaimed` | `bigint`    | Cumulative SOL claimed (lamports)                 |
 | `claimedRewardsWad`   | `bigint`    | Cumulative WAD-scaled rewards paid                |
+| `unstakeRequestSettled`| `number`   | 1 if pending request was settled at request time  |
 
 ### PoolMetadata
 

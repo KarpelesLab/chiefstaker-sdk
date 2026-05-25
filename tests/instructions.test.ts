@@ -132,7 +132,8 @@ describe("stake instruction", () => {
     expect(ix.data.length).toBe(9);
   });
 
-  it("has 8 accounts without metadata", () => {
+  it("includes 9 accounts with the required metadata PDA", () => {
+    const [metadata] = findPoolMetadataAddress(pool);
     const ix = createStakeInstruction({
       pool,
       mint,
@@ -142,7 +143,7 @@ describe("stake instruction", () => {
       tokenProgram: TOKEN_2022_PROGRAM_ID,
     });
 
-    expect(ix.keys.length).toBe(8);
+    expect(ix.keys.length).toBe(9);
     expect(ix.keys[0].pubkey.equals(pool)).toBe(true);
     expect(ix.keys[1].pubkey.equals(userStake)).toBe(true);
     expect(ix.keys[2].pubkey.equals(tokenVault)).toBe(true);
@@ -152,21 +153,6 @@ describe("stake instruction", () => {
     expect(ix.keys[5].isSigner).toBe(true);
     expect(ix.keys[6].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
     expect(ix.keys[7].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
-  });
-
-  it("appends metadata account when includeMetadata is true", () => {
-    const [metadata] = findPoolMetadataAddress(pool);
-    const ix = createStakeInstruction({
-      pool,
-      mint,
-      owner,
-      userTokenAccount,
-      amount: 1_000_000n,
-      tokenProgram: TOKEN_2022_PROGRAM_ID,
-      includeMetadata: true,
-    });
-
-    expect(ix.keys.length).toBe(9);
     expect(ix.keys[8].pubkey.equals(metadata)).toBe(true);
     expect(ix.keys[8].isWritable).toBe(true);
   });
@@ -185,10 +171,11 @@ describe("unstake instruction", () => {
 
     expect(ix.data[0]).toBe(2);
     expect(ix.data.readBigUInt64LE(1)).toBe(500_000n);
-    expect(ix.keys.length).toBe(7);
+    expect(ix.keys.length).toBe(9);
   });
 
-  it("does not include system program", () => {
+  it("includes system program and metadata PDA", () => {
+    const [metadata] = findPoolMetadataAddress(pool);
     const ix = createUnstakeInstruction({
       pool,
       mint,
@@ -198,10 +185,10 @@ describe("unstake instruction", () => {
       tokenProgram: TOKEN_2022_PROGRAM_ID,
     });
 
-    const hasSystemProgram = ix.keys.some((k) =>
-      k.pubkey.equals(SYSTEM_PROGRAM_ID)
-    );
-    expect(hasSystemProgram).toBe(false);
+    expect(ix.keys[6].pubkey.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    expect(ix.keys[7].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(ix.keys[8].pubkey.equals(metadata)).toBe(true);
+    expect(ix.keys[8].isWritable).toBe(true);
   });
 });
 
@@ -342,10 +329,10 @@ describe("requestUnstake instruction", () => {
 
     expect(ix.data[0]).toBe(9);
     expect(ix.data.readBigUInt64LE(1)).toBe(250_000n);
-    expect(ix.keys.length).toBe(3);
+    expect(ix.keys.length).toBe(4);
   });
 
-  it("owner is signer but not writable", () => {
+  it("owner is a writable signer (receives settled rewards)", () => {
     const ix = createRequestUnstakeInstruction({
       pool,
       owner,
@@ -354,7 +341,8 @@ describe("requestUnstake instruction", () => {
 
     expect(ix.keys[2].pubkey.equals(owner)).toBe(true);
     expect(ix.keys[2].isSigner).toBe(true);
-    expect(ix.keys[2].isWritable).toBe(false);
+    expect(ix.keys[2].isWritable).toBe(true);
+    expect(ix.keys[3].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
   });
 });
 
@@ -370,7 +358,22 @@ describe("completeUnstake instruction", () => {
 
     expect(ix.data[0]).toBe(10);
     expect(ix.data.length).toBe(1);
-    expect(ix.keys.length).toBe(7);
+    expect(ix.keys.length).toBe(9);
+  });
+
+  it("includes system program and metadata PDA", () => {
+    const [metadata] = findPoolMetadataAddress(pool);
+    const ix = createCompleteUnstakeInstruction({
+      pool,
+      mint,
+      owner,
+      userTokenAccount,
+      tokenProgram: TOKEN_2022_PROGRAM_ID,
+    });
+
+    expect(ix.keys[7].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
+    expect(ix.keys[8].pubkey.equals(metadata)).toBe(true);
+    expect(ix.keys[8].isWritable).toBe(true);
   });
 });
 
@@ -380,14 +383,15 @@ describe("cancelUnstakeRequest instruction", () => {
 
     expect(ix.data[0]).toBe(11);
     expect(ix.data.length).toBe(1);
-    expect(ix.keys.length).toBe(3);
+    expect(ix.keys.length).toBe(4);
   });
 
-  it("pool is not writable", () => {
+  it("pool is writable and trailing system program is present", () => {
     const ix = createCancelUnstakeRequestInstruction({ pool, owner });
 
     expect(ix.keys[0].pubkey.equals(pool)).toBe(true);
-    expect(ix.keys[0].isWritable).toBe(false);
+    expect(ix.keys[0].isWritable).toBe(true);
+    expect(ix.keys[3].pubkey.equals(SYSTEM_PROGRAM_ID)).toBe(true);
   });
 });
 
@@ -397,7 +401,7 @@ describe("closeStakeAccount instruction", () => {
 
     expect(ix.data[0]).toBe(12);
     expect(ix.data.length).toBe(1);
-    expect(ix.keys.length).toBe(3);
+    expect(ix.keys.length).toBe(4);
   });
 
   it("owner receives rent refund (writable signer)", () => {
@@ -406,6 +410,14 @@ describe("closeStakeAccount instruction", () => {
     expect(ix.keys[2].pubkey.equals(owner)).toBe(true);
     expect(ix.keys[2].isSigner).toBe(true);
     expect(ix.keys[2].isWritable).toBe(true);
+  });
+
+  it("includes the required metadata PDA", () => {
+    const [metadata] = findPoolMetadataAddress(pool);
+    const ix = createCloseStakeAccountInstruction({ pool, owner });
+
+    expect(ix.keys[3].pubkey.equals(metadata)).toBe(true);
+    expect(ix.keys[3].isWritable).toBe(true);
   });
 });
 
@@ -469,7 +481,7 @@ describe("stakeOnBehalf instruction", () => {
 
     expect(ix.data[0]).toBe(16);
     expect(ix.data.readBigUInt64LE(1)).toBe(2_000_000n);
-    expect(ix.keys.length).toBe(9);
+    expect(ix.keys.length).toBe(10);
   });
 
   it("staker is signer, beneficiary is not", () => {
@@ -512,7 +524,7 @@ describe("stakeOnBehalf instruction", () => {
     expect(ix.keys[1].pubkey.equals(beneficiaryStake)).toBe(true);
   });
 
-  it("appends metadata when includeMetadata is true", () => {
+  it("appends the required metadata PDA", () => {
     const staker = Keypair.generate().publicKey;
     const beneficiary = Keypair.generate().publicKey;
     const stakerTokenAccount = Keypair.generate().publicKey;
@@ -525,11 +537,11 @@ describe("stakeOnBehalf instruction", () => {
       stakerTokenAccount,
       amount: 2_000_000n,
       tokenProgram: TOKEN_2022_PROGRAM_ID,
-      includeMetadata: true,
     });
 
     expect(ix.keys.length).toBe(10);
     expect(ix.keys[9].pubkey.equals(metadata)).toBe(true);
+    expect(ix.keys[9].isWritable).toBe(true);
   });
 });
 

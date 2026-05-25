@@ -134,7 +134,7 @@ describe("deserializeStakingPool", () => {
 });
 
 describe("deserializeUserStake", () => {
-  function makeStakeBuffer(size: number = 177): Buffer {
+  function makeStakeBuffer(size: number = 178): Buffer {
     const buf = Buffer.alloc(size);
     let offset = 0;
 
@@ -205,11 +205,17 @@ describe("deserializeUserStake", () => {
       offset += 16;
     }
 
+    if (size >= 178) {
+      // unstakeRequestSettled (u8)
+      buf[offset] = 1;
+      offset += 1;
+    }
+
     return buf;
   }
 
-  it("deserializes a full 177-byte stake", () => {
-    const buf = makeStakeBuffer(177);
+  it("deserializes a full 178-byte stake", () => {
+    const buf = makeStakeBuffer(178);
     const stake = deserializeUserStake(buf);
 
     expect(stake.amount).toBe(500_000n);
@@ -223,6 +229,7 @@ describe("deserializeUserStake", () => {
     expect(stake.baseTimeSnapshot).toBe(1699999000n);
     expect(stake.totalRewardsClaimed).toBe(2_000_000n);
     expect(stake.claimedRewardsWad).toBe(2_000_000_000_000_000_000n);
+    expect(stake.unstakeRequestSettled).toBe(1);
   });
 
   it("handles legacy 153-byte accounts", () => {
@@ -235,6 +242,7 @@ describe("deserializeUserStake", () => {
     expect(stake.baseTimeSnapshot).toBe(0n);
     expect(stake.totalRewardsClaimed).toBe(0n);
     expect(stake.claimedRewardsWad).toBe(0n);
+    expect(stake.unstakeRequestSettled).toBe(0);
   });
 
   it("handles legacy 161-byte accounts", () => {
@@ -244,6 +252,16 @@ describe("deserializeUserStake", () => {
     expect(stake.baseTimeSnapshot).toBe(1699999000n);
     expect(stake.totalRewardsClaimed).toBe(0n);
     expect(stake.claimedRewardsWad).toBe(0n);
+    expect(stake.unstakeRequestSettled).toBe(0);
+  });
+
+  it("handles legacy 177-byte accounts (no settled marker)", () => {
+    const buf = makeStakeBuffer(177);
+    const stake = deserializeUserStake(buf);
+
+    expect(stake.claimedRewardsWad).toBe(2_000_000_000_000_000_000n);
+    // unstakeRequestSettled marker absent → defaults to 0
+    expect(stake.unstakeRequestSettled).toBe(0);
   });
 
   it("owner and pool are valid PublicKeys", () => {
